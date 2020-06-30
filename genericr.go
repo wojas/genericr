@@ -25,7 +25,7 @@ import (
 	"fmt"
 	"regexp"
 	"sort"
-	"strings"
+	"strconv"
 
 	"github.com/go-logr/logr"
 )
@@ -46,18 +46,23 @@ type Entry struct {
 // you need to parse these logs later!
 // TODO: Neater way to log values with newlines?
 func (e Entry) String() string {
-	var fieldsStr string
-	fieldsSep := ""
-	if len(e.Fields) > 0 {
-		fieldsStr = flatten(e.Fields...)
-		fieldsSep = " "
-	}
-	var errStr string
+	buf := bytes.NewBuffer(make([]byte, 0, 160))
+	buf.WriteByte('[')
+	buf.WriteString(strconv.Itoa(e.Level))
+	buf.WriteByte(']')
+	buf.WriteByte(' ')
+	buf.WriteString(e.Name)
+	buf.WriteByte(' ')
+	buf.WriteString(pretty(e.Message))
 	if e.Error != nil {
-		errStr = " " + flatten("error", e.Error.Error())
+		buf.WriteString(" error=")
+		buf.WriteString(pretty(e.Error.Error()))
 	}
-	return fmt.Sprintf("[%d] %s %q%s%s%s",
-		e.Level, strings.Join(e.NameParts, "."), e.Message, errStr, fieldsSep, fieldsStr)
+	if len(e.Fields) > 0 {
+		buf.WriteByte(' ')
+		buf.WriteString(flatten(e.Fields...))
+	}
+	return buf.String()
 }
 
 // FieldsMap converts the fields to a map.
