@@ -31,7 +31,7 @@ func TestLogger_Table(t *testing.T) {
 			func() {
 				log.Info("hello world")
 			},
-			`[0]  "hello world" `,
+			`[0]  "hello world"`,
 		},
 		{
 			func() {
@@ -94,7 +94,7 @@ func TestLogger_Table(t *testing.T) {
 				log.Info("first")
 				log.WithVerbosity(1).V(2).Info("hello world", "a", 1)
 			},
-			`[0]  "first" `,
+			`[0]  "first"`,
 		},
 		{
 			func() {
@@ -112,7 +112,7 @@ func TestLogger_Table(t *testing.T) {
 			func() {
 				log.Error(fmt.Errorf("some error"), "help")
 			},
-			`[0]  "help" error="some error" `,
+			`[0]  "help" error="some error"`,
 		},
 		{
 			f: func() {

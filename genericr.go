@@ -47,15 +47,17 @@ type Entry struct {
 // TODO: Neater way to log values with newlines?
 func (e Entry) String() string {
 	var fieldsStr string
+	fieldsSep := ""
 	if len(e.Fields) > 0 {
 		fieldsStr = flatten(e.Fields...)
+		fieldsSep = " "
 	}
 	var errStr string
 	if e.Error != nil {
-		errStr = flatten("error", e.Error.Error()) + " "
+		errStr = " " + flatten("error", e.Error.Error())
 	}
-	return fmt.Sprintf("[%d] %s %q %s%s",
-		e.Level, strings.Join(e.NameParts, "."), e.Message, errStr, fieldsStr)
+	return fmt.Sprintf("[%d] %s %q%s%s%s",
+		e.Level, strings.Join(e.NameParts, "."), e.Message, errStr, fieldsSep, fieldsStr)
 }
 
 // FieldsMap converts the fields to a map.
@@ -168,6 +170,7 @@ func (l Logger) logMessage(err error, msg string, kvList []interface{}) {
 	})
 }
 
+// Check that we indeed implement the logr.Logger interface
 var _ logr.Logger = Logger{}
 
 // Helper functions below
