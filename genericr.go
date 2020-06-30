@@ -159,6 +159,7 @@ func (l Logger) logMessage(err error, msg string, kvList []interface{}) {
 	}
 	l.f(Entry{
 		Level:     l.level,
+		Name:      l.name,
 		NameParts: l.nameParts,
 		Message:   msg,
 		Error:     err,
