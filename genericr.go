@@ -23,6 +23,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"regexp"
 	"sort"
 	"strings"
 
@@ -31,15 +32,18 @@ import (
 
 // Entry is a log entry that your adapter will receive for actual logging
 type Entry struct {
-	Level   int
-	Prefix  []string
-	Message string
-	Error   error
-	Fields  []interface{} // alternating key-value pairs
+	Level     int           // level at which this was logged
+	Name      string        // name parts joined with '.'
+	NameParts []string      // individual name segments
+	Message   string        // message as send to log call
+	Error     error         // error if .Error() was called
+	Fields    []interface{} // alternating key-value pairs
 	// TODO: CallerDepth int
 }
 
-// String converts the entry to a string. The format is subject to change.
+// String converts the entry to a string.
+// The output format is subject to change! Implement your own conversion if
+// you need to parse these logs later!
 // TODO: Neater way to log values with newlines?
 func (e Entry) String() string {
 	var fieldsStr string
@@ -51,7 +55,7 @@ func (e Entry) String() string {
 		errStr = flatten("error", e.Error.Error()) + " "
 	}
 	return fmt.Sprintf("[%d] %s %q %s%s",
-		e.Level, strings.Join(e.Prefix, "."), e.Message, errStr, fieldsStr)
+		e.Level, strings.Join(e.NameParts, "."), e.Message, errStr, fieldsStr)
 }
 
 // FieldsMap converts the fields to a map.
@@ -72,24 +76,26 @@ func New(f LogFunc) Logger {
 	return log
 }
 
+// Logger is a generic logger that implements the logr.Logger interface and
+// calls a function of type LogFunc for every log message received.
 type Logger struct {
 	f         LogFunc
 	level     int           // current verbosity level
 	verbosity int           // max verbosity level that we log
-	prefix    []string      // list of prefix names
+	nameParts []string      // list of names
+	name      string        // nameParts joined by '.' for performance
 	values    []interface{} // key-value pairs
 	depth     int           // call stack depth to figure out caller info
 }
 
 // WithVerbosity returns a new instance with given max verbosity level
 func (l Logger) WithVerbosity(level int) Logger {
-	ll := l.clone()
-	ll.verbosity = level
-	return ll
+	l.verbosity = level
+	return l
 }
 
 func (l Logger) Info(msg string, kvList ...interface{}) {
-	l.logMessage(nil, msg, kvList...)
+	l.logMessage(nil, msg, kvList)
 }
 
 func (l Logger) Enabled() bool {
@@ -97,38 +103,47 @@ func (l Logger) Enabled() bool {
 }
 
 func (l Logger) Error(err error, msg string, kvList ...interface{}) {
-	l.logMessage(err, msg, kvList...)
+	l.logMessage(err, msg, kvList)
 }
 
 func (l Logger) V(level int) logr.Logger {
-	ll := l.clone()
-	ll.level += level
-	return ll
+	l.level += level
+	return l
 }
 
 func (l Logger) WithName(name string) logr.Logger {
-	ll := l.clone()
-	ll.prefix = append(ll.prefix, name)
-	return ll
+	// We keep both a list of parts for full flexibility, and a pre-joined string
+	// for performance. We assume that this method is called far less often
+	// than that actual logging is done.
+	if len(l.nameParts) == 0 {
+		l.nameParts = []string{name}
+		l.name = name
+	} else {
+		n := len(l.nameParts)
+		l.nameParts = append(l.nameParts[:n:n], name) // triple-slice to force copy
+		l.name += "." + name
+	}
+	return l
 }
 
 func (l Logger) WithValues(kvList ...interface{}) logr.Logger {
-	ll := l.clone()
-	ll.values = append(ll.values, kvList...)
-	return ll
-}
-
-func (l Logger) clone() Logger {
-	out := l
-	l.values = copySlice(l.values)
-	n := len(l.prefix)
-	if n > 0 {
-		l.prefix = l.prefix[:n:n] // cap to force copy on append
+	if len(kvList) == 0 {
+		return l
 	}
-	return out
+	if len(kvList)%2 == 1 {
+		// Ensure an odd number of items here does not corrupt the list
+		kvList = append(kvList, nil)
+	}
+	if len(l.values) == 0 {
+		l.values = kvList
+	} else {
+		n := len(l.values)
+		l.values = append(l.values[:n:n], kvList...) // triple-slice to force copy
+	}
+	return l
 }
 
-func (l Logger) logMessage(err error, msg string, kvList ...interface{}) {
+func (l Logger) logMessage(err error, msg string, kvList []interface{}) {
 	if !l.Enabled() {
 		return
 	}
@@ -143,11 +158,11 @@ func (l Logger) logMessage(err error, msg string, kvList ...interface{}) {
 		copy(out[len(l.values):], kvList)
 	}
 	l.f(Entry{
-		Level:   l.level,
-		Prefix:  l.prefix,
-		Message: msg,
-		Error:   err,
-		Fields:  out,
+		Level:     l.level,
+		NameParts: l.nameParts,
+		Message:   msg,
+		Error:     err,
+		Fields:    out,
 		//CallerDepth: l.depth,
 	})
 }
@@ -156,18 +171,28 @@ var _ logr.Logger = Logger{}
 
 // Helper functions below
 
-func pretty(value interface{}) string {
-	jb, err := json.Marshal(value)
-	if err != nil {
-		jb, _ = json.Marshal(fmt.Sprintf("%v", value))
+var safeString = regexp.MustCompile(`^[a-zA-Z0-9._-]+$`)
+
+func prettyKey(v string) string {
+	if safeString.MatchString(v) {
+		return v
+	} else {
+		return pretty(v)
 	}
-	return string(jb)
 }
 
-func copySlice(in []interface{}) []interface{} {
-	out := make([]interface{}, len(in))
-	copy(out, in)
-	return out
+func pretty(value interface{}) string {
+	switch v := value.(type) {
+	case error:
+		value = v.Error()
+	case []byte:
+		return fmt.Sprintf(`"% x"`, v)
+	}
+	jb, err := json.Marshal(value)
+	if err != nil {
+		jb, _ = json.Marshal(fmt.Sprintf("%q", value))
+	}
+	return string(jb)
 }
 
 // flatten converts a key-value list to a friendly string
@@ -184,7 +209,7 @@ func flatten(kvList ...interface{}) string {
 		if i > 0 {
 			buf.WriteRune(' ')
 		}
-		buf.WriteString(pretty(k))
+		buf.WriteString(prettyKey(k))
 		buf.WriteString("=")
 		buf.WriteString(pretty(v))
 	}

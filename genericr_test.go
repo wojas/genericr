@@ -1,6 +1,7 @@
 package genericr_test
 
 import (
+	"errors"
 	"fmt"
 	"testing"
 
@@ -36,50 +37,57 @@ func TestLogger_Table(t *testing.T) {
 			func() {
 				log.Info("hello world", "a", 1)
 			},
-			`[0]  "hello world" "a"=1`,
+			`[0]  "hello world" a=1`,
 		},
 		{
 			func() {
 				log.V(4).Info("hello world", "a", 1)
 			},
-			`[4]  "hello world" "a"=1`,
+			`[4]  "hello world" a=1`,
 		},
 		{
 			func() {
 				log.WithName("somename").Info("hello world", "a", 1)
 			},
-			`[0] somename "hello world" "a"=1`,
+			`[0] somename "hello world" a=1`,
 		},
 		{
 			func() {
 				log.WithName("somename").WithName("sub").Info("hello world", "a", 1)
 			},
-			`[0] somename.sub "hello world" "a"=1`,
+			`[0] somename.sub "hello world" a=1`,
 		},
 		{
 			func() {
 				log.WithName("somename").V(1).WithName("sub").Info("hello world", "a", 1, "b", 2)
 			},
-			`[1] somename.sub "hello world" "a"=1 "b"=2`,
+			`[1] somename.sub "hello world" a=1 b=2`,
 		},
 		{
 			func() {
 				log.WithValues("x", "yz").WithName("somename").V(1).WithName("sub").Info("hello world", "a", 1, "b", 2)
 			},
-			`[1] somename.sub "hello world" "a"=1 "b"=2 "x"="yz"`,
+			`[1] somename.sub "hello world" a=1 b=2 x="yz"`,
+		},
+		{
+			func() {
+				// Odd values by mistake, does not corrupt later calls
+				log.WithValues("x", "yz", "z").Info("hello world", "a", 1, "b", 2)
+			},
+			`[0]  "hello world" a=1 b=2 x="yz" z=null`,
 		},
 		{
 			func() {
 				log.WithVerbosity(1).Info("hello world", "a", 1)
 			},
-			`[0]  "hello world" "a"=1`,
+			`[0]  "hello world" a=1`,
 		},
 		{
 			func() {
 				log.Info("first")
 				log.WithVerbosity(1).V(1).Info("hello world", "a", 1)
 			},
-			`[1]  "hello world" "a"=1`,
+			`[1]  "hello world" a=1`,
 		},
 		{
 			func() {
@@ -92,7 +100,7 @@ func TestLogger_Table(t *testing.T) {
 			func() {
 				log.Info("wrong params", "a")
 			},
-			`[0]  "wrong params" "a"=null`,
+			`[0]  "wrong params" a=null`,
 		},
 		{
 			func() {
@@ -104,7 +112,28 @@ func TestLogger_Table(t *testing.T) {
 			func() {
 				log.Error(fmt.Errorf("some error"), "help")
 			},
-			`[0]  "help" "error"="some error" `,
+			`[0]  "help" error="some error" `,
+		},
+		{
+			f: func() {
+				log.WithValues(
+					"int", 42,
+					"string", "foo",
+					"bytes", []byte("foo"),
+					"float", 3.14,
+					"struct", struct {
+						A string
+						B int
+					}{"foo", 12},
+					"map", map[string]int{
+						"foo": 12,
+					},
+					"nilval", nil,
+					"err", errors.New("oops"),
+					"stringslice", []string{"a", "b"},
+				).Info("types")
+			},
+			want: `[0]  "types" bytes="66 6f 6f" err="oops" float=3.14 int=42 map={"foo":12} nilval=null string="foo" stringslice=["a","b"] struct={"A":"foo","B":12}`,
 		},
 	}
 
@@ -173,7 +202,22 @@ func BenchmarkLogger_complicated(b *testing.B) {
 	}
 }
 
-func BenchmarkLogger_2vars_string(b *testing.B) {
+func BenchmarkLogger_complicated_precalculated(b *testing.B) {
+	foo := 0
+	var lf genericr.LogFunc = func(e genericr.Entry) {
+		foo += e.Level // just to prevent it from being optimized away
+	}
+	log := genericr.New(lf)
+	log2 := log.V(1).WithName("bench").WithValues("x", 123)
+
+	b.ReportAllocs()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		log2.Info("hello", "a", 1, "b", 2)
+	}
+}
+
+func BenchmarkLogger_2vars_tostring(b *testing.B) {
 	foo := ""
 	var lf genericr.LogFunc = func(e genericr.Entry) {
 		foo = e.String()
