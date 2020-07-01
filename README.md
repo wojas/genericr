@@ -39,10 +39,18 @@ type Entry struct {
 	Message   string        // message as send to log call
 	Error     error         // error if .Error() was called
 	Fields    []interface{} // alternating key-value pairs
+
+	// Caller information
+	Caller      runtime.Frame // only available after .WithCaller(true)
+	CallerDepth int           // caller depth from callback
 }
 ```
 
 Use `e.FieldsMap()` to retrieve the Fields as a map.
+
+To enable caller information, use `genericr.New(...).WithCaller(true)`.
+
+To filter messages above a certain verbosity level, use `genericr.New(...).WithVerbosity(1)`.
 
 ### Usage in tests
 

@@ -23,7 +23,9 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"path/filepath"
 	"regexp"
+	"runtime"
 	"sort"
 	"strconv"
 
@@ -38,7 +40,10 @@ type Entry struct {
 	Message   string        // message as send to log call
 	Error     error         // error if .Error() was called
 	Fields    []interface{} // alternating key-value pairs
-	// TODO: CallerDepth int
+
+	// Caller information
+	Caller      runtime.Frame // only available after .WithCaller(true)
+	CallerDepth int           // caller depth from callback
 }
 
 // String converts the entry to a string.
@@ -51,6 +56,10 @@ func (e Entry) String() string {
 	buf.WriteString(strconv.Itoa(e.Level))
 	buf.WriteByte(']')
 	buf.WriteByte(' ')
+	if e.Caller.File != "" || e.Caller.Line != 0 {
+		buf.WriteString(e.CallerShort())
+		buf.WriteByte(' ')
+	}
 	buf.WriteString(e.Name)
 	buf.WriteByte(' ')
 	buf.WriteString(pretty(e.Message))
@@ -69,6 +78,15 @@ func (e Entry) String() string {
 // This map is also compatible with logrus.Fields.
 func (e Entry) FieldsMap() map[string]interface{} {
 	return fieldsMap(e.Fields)
+}
+
+// CallerShort returns a short caller location string ("somefile.go:123")
+func (e Entry) CallerShort() string {
+	if e.Caller.File == "" && e.Caller.Line == 0 {
+		return ""
+	}
+	_, fname := filepath.Split(e.Caller.File)
+	return fmt.Sprintf("%s:%d", fname, e.Caller.Line)
 }
 
 // LogFunc is your custom log backend
@@ -92,12 +110,33 @@ type Logger struct {
 	nameParts []string      // list of names
 	name      string        // nameParts joined by '.' for performance
 	values    []interface{} // key-value pairs
-	depth     int           // call stack depth to figure out caller info
+	caller    bool          // try to retrieve the caller from the stack
+	depth     int           // call stack depth offset to figure out caller info
 }
 
-// WithVerbosity returns a new instance with given max verbosity level
+// WithVerbosity returns a new instance with given max verbosity level.
+// This is not part of the logr interface, so you can only use this on the root object.
 func (l Logger) WithVerbosity(level int) Logger {
 	l.verbosity = level
+	return l
+}
+
+// WithCaller enables or disables caller lookup for Entry.Caller.
+// It is disabled by default.
+// Local benchmarks show close to 1µs and 2 allocs extra overhead from enabling this,
+// without actually using this extra information.
+// This is not part of the logr interface, so you can only use this on the root object.
+func (l Logger) WithCaller(enabled bool) Logger {
+	l.caller = enabled
+	return l
+}
+
+// WithCallerDepth adjusts the caller depth. This is useful is the caller uses
+// a custom wrapper to log messages with extra info.
+// To actually do caller lookups, those have to be enabled with .WithCaller(true).
+// This is not part of the logr interface, so you can only use this on the root object.
+func (l Logger) WithCallerDepth(depth int) Logger {
+	l.depth += depth
 	return l
 }
 
@@ -150,6 +189,7 @@ func (l Logger) WithValues(kvList ...interface{}) logr.Logger {
 	return l
 }
 
+// logMessage implements the actual logging for .Info() and .Error()
 func (l Logger) logMessage(err error, msg string, kvList []interface{}) {
 	if !l.Enabled() {
 		return
@@ -164,14 +204,25 @@ func (l Logger) logMessage(err error, msg string, kvList []interface{}) {
 		copy(out, l.values)
 		copy(out[len(l.values):], kvList)
 	}
+
+	calldepth := 2 + l.depth
+	var caller runtime.Frame
+	if l.caller {
+		pc := make([]uintptr, 1)
+		if n := runtime.Callers(calldepth+1, pc[:]); n >= 1 {
+			caller, _ = runtime.CallersFrames(pc).Next()
+		}
+	}
+
 	l.f(Entry{
-		Level:     l.level,
-		Name:      l.name,
-		NameParts: l.nameParts,
-		Message:   msg,
-		Error:     err,
-		Fields:    out,
-		//CallerDepth: l.depth,
+		Level:       l.level,
+		Name:        l.name,
+		NameParts:   l.nameParts,
+		Message:     msg,
+		Error:       err,
+		Fields:      out,
+		Caller:      caller,
+		CallerDepth: calldepth + 1, // +1 for callback
 	})
 }
 

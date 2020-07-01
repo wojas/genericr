@@ -3,6 +3,8 @@ package genericr_test
 import (
 	"errors"
 	"fmt"
+	"path/filepath"
+	"runtime"
 	"testing"
 
 	"github.com/wojas/genericr"
@@ -146,12 +148,46 @@ func TestLogger_Table(t *testing.T) {
 	}
 }
 
+func TestLogger_Caller(t *testing.T) {
+	var last genericr.Entry
+	var lf genericr.LogFunc = func(e genericr.Entry) {
+		last = e
+		t.Log(e.String())
+		t.Log(runtime.Caller(e.CallerDepth)) // should log caller_test
+	}
+	log := genericr.New(lf).WithCaller(true)
+	logSomethingFromOtherFile(log)
+
+	_, fname := filepath.Split(last.Caller.File)
+	if fname != "caller_test.go" {
+		t.Errorf("Caller: expected 'caller_test.go', got %q (full: %s:%d)",
+			fname, last.Caller.File, last.Caller.Line)
+	}
+	if last.CallerDepth != 3 {
+		t.Errorf("Caller depth: expected 3, got %d", last.CallerDepth)
+	}
+}
+
 func BenchmarkLogger_basic(b *testing.B) {
 	foo := 0
 	var lf genericr.LogFunc = func(e genericr.Entry) {
 		foo += e.Level // just to prevent it from being optimized away
 	}
 	log := genericr.New(lf)
+
+	b.ReportAllocs()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		log.Info("hello")
+	}
+}
+
+func BenchmarkLogger_basic_with_caller(b *testing.B) {
+	foo := 0
+	var lf genericr.LogFunc = func(e genericr.Entry) {
+		foo += e.Level // just to prevent it from being optimized away
+	}
+	log := genericr.New(lf).WithCaller(true)
 
 	b.ReportAllocs()
 	b.ResetTimer()
