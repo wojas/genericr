@@ -141,6 +141,9 @@ func (l Logger) WithCallerDepth(depth int) Logger {
 }
 
 func (l Logger) Info(msg string, kvList ...interface{}) {
+	if !l.Enabled() {
+		return
+	}
 	l.logMessage(nil, msg, kvList)
 }
 
@@ -191,9 +194,6 @@ func (l Logger) WithValues(kvList ...interface{}) logr.Logger {
 
 // logMessage implements the actual logging for .Info() and .Error()
 func (l Logger) logMessage(err error, msg string, kvList []interface{}) {
-	if !l.Enabled() {
-		return
-	}
 	var out []interface{}
 	if len(l.values) == 0 && len(kvList) > 0 {
 		out = kvList

@@ -117,6 +117,12 @@ func TestLogger_Table(t *testing.T) {
 			`[0]  "help" error="some error"`,
 		},
 		{
+			func() {
+				log.WithVerbosity(3).V(4).Error(errors.New("some error"), "errors are always logged")
+			},
+			`[4]  "errors are always logged" error="some error"`,
+		},
+		{
 			f: func() {
 				log.WithValues(
 					"int", 42,
