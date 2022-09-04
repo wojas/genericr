@@ -7,6 +7,7 @@ import (
 	"runtime"
 	"testing"
 
+	"github.com/go-logr/logr"
 	"github.com/wojas/genericr"
 )
 
@@ -23,7 +24,7 @@ func TestLogger_Table(t *testing.T) {
 		last = e
 		t.Log(e.String())
 	}
-	log := genericr.New(lf)
+	sink := genericr.New(lf)
 
 	tt := []struct {
 		f    func()
@@ -31,94 +32,94 @@ func TestLogger_Table(t *testing.T) {
 	}{
 		{
 			func() {
-				log.Info("hello world")
+				sink.Info(0, "hello world")
 			},
 			`[0]  "hello world"`,
 		},
 		{
 			func() {
-				log.Info("hello world", "a", 1)
+				sink.Info(0, "hello world", "a", 1)
 			},
 			`[0]  "hello world" a=1`,
 		},
 		{
 			func() {
-				log.V(4).Info("hello world", "a", 1)
+				sink.Info(4, "hello world", "a", 1)
 			},
 			`[4]  "hello world" a=1`,
 		},
 		{
 			func() {
-				log.WithName("somename").Info("hello world", "a", 1)
+				sink.WithName("somename").Info(0, "hello world", "a", 1)
 			},
 			`[0] somename "hello world" a=1`,
 		},
 		{
 			func() {
-				log.WithName("somename").WithName("sub").Info("hello world", "a", 1)
+				sink.WithName("somename").WithName("sub").Info(0, "hello world", "a", 1)
 			},
 			`[0] somename.sub "hello world" a=1`,
 		},
 		{
 			func() {
-				log.WithName("somename").V(1).WithName("sub").Info("hello world", "a", 1, "b", 2)
+				sink.WithName("somename").WithName("sub").Info(1, "hello world", "a", 1, "b", 2)
 			},
 			`[1] somename.sub "hello world" a=1 b=2`,
 		},
 		{
 			func() {
-				log.WithValues("x", "yz").WithName("somename").V(1).WithName("sub").Info("hello world", "a", 1, "b", 2)
+				sink.WithValues("x", "yz").WithName("somename").WithName("sub").Info(1, "hello world", "a", 1, "b", 2)
 			},
 			`[1] somename.sub "hello world" a=1 b=2 x="yz"`,
 		},
 		{
 			func() {
 				// Odd values by mistake, does not corrupt later calls
-				log.WithValues("x", "yz", "z").Info("hello world", "a", 1, "b", 2)
+				sink.WithValues("x", "yz", "z").Info(0, "hello world", "a", 1, "b", 2)
 			},
 			`[0]  "hello world" a=1 b=2 x="yz" z=null`,
 		},
 		{
 			func() {
-				log.WithVerbosity(1).Info("hello world", "a", 1)
+				sink.WithVerbosity(1).Info(0, "hello world", "a", 1)
 			},
 			`[0]  "hello world" a=1`,
 		},
 		{
 			func() {
-				log.Info("first")
-				log.WithVerbosity(1).V(1).Info("hello world", "a", 1)
+				sink.Info(01, "first")
+				sink.WithVerbosity(1).Info(1, "hello world", "a", 1)
 			},
 			`[1]  "hello world" a=1`,
 		},
 		{
 			func() {
-				log.Info("first")
-				log.WithVerbosity(1).V(2).Info("hello world", "a", 1)
+				sink.Info(0, "first")
+				sink.WithVerbosity(1).Info(0, "hello world", "a", 1)
 			},
-			`[0]  "first"`,
+			`[0]  "hello world" a=1`,
 		},
 		{
 			func() {
-				log.Info("wrong params", "a")
+				sink.Info(0, "wrong params", "a")
 			},
 			`[0]  "wrong params" a=null`,
 		},
 		{
 			func() {
-				log.Info("wrong params", 42)
+				sink.Info(0, "wrong params", 42)
 			},
 			`[0]  "wrong params" "!(42)"=null`,
 		},
 		{
 			func() {
-				log.Error(fmt.Errorf("some error"), "help")
+				sink.Error(fmt.Errorf("some error"), "help")
 			},
 			`[0]  "help" error="some error"`,
 		},
 		{
 			f: func() {
-				log.WithValues(
+				sink.WithValues(
 					"int", 42,
 					"string", "foo",
 					"bytes", []byte("foo"),
@@ -133,7 +134,7 @@ func TestLogger_Table(t *testing.T) {
 					"nilval", nil,
 					"err", errors.New("oops"),
 					"stringslice", []string{"a", "b"},
-				).Info("types")
+				).Info(0, "types")
 			},
 			want: `[0]  "types" bytes="66 6f 6f" err="oops" float=3.14 int=42 map={"foo":12} nilval=null string="foo" stringslice=["a","b"] struct={"A":"foo","B":12}`,
 		},
@@ -155,16 +156,16 @@ func TestLogger_Caller(t *testing.T) {
 		t.Log(e.String())
 		t.Log(runtime.Caller(e.CallerDepth)) // should log caller_test
 	}
-	log := genericr.New(lf).WithCaller(true)
-	logSomethingFromOtherFile(log)
+	sink := genericr.New(lf).WithCaller(true)
+	logSomethingFromOtherFile(logr.New(sink))
 
 	_, fname := filepath.Split(last.Caller.File)
 	if fname != "caller_test.go" {
 		t.Errorf("Caller: expected 'caller_test.go', got %q (full: %s:%d)",
 			fname, last.Caller.File, last.Caller.Line)
 	}
-	if last.CallerDepth != 3 {
-		t.Errorf("Caller depth: expected 3, got %d", last.CallerDepth)
+	if last.CallerDepth != 4 {
+		t.Errorf("Caller depth: expected 4, got %d", last.CallerDepth)
 	}
 }
 
@@ -178,7 +179,7 @@ func BenchmarkLogger_basic(b *testing.B) {
 	b.ReportAllocs()
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		log.Info("hello")
+		log.Info(0, "hello")
 	}
 }
 
@@ -192,7 +193,7 @@ func BenchmarkLogger_basic_with_caller(b *testing.B) {
 	b.ReportAllocs()
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		log.Info("hello")
+		log.Info(0, "hello")
 	}
 }
 
@@ -206,7 +207,7 @@ func BenchmarkLogger_2vars(b *testing.B) {
 	b.ReportAllocs()
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		log.Info("hello", "a", 1, "b", 2)
+		log.Info(0, "hello", "a", 1, "b", 2)
 	}
 }
 
@@ -220,7 +221,7 @@ func BenchmarkLogger_clone(b *testing.B) {
 	b.ReportAllocs()
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		log.V(1).Info("hello")
+		log.Info(0, "hello")
 	}
 }
 
@@ -234,7 +235,7 @@ func BenchmarkLogger_complicated(b *testing.B) {
 	b.ReportAllocs()
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		log.V(1).WithName("bench").WithValues("x", 123).Info("hello", "a", 1, "b", 2)
+		log.WithName("bench").WithValues("x", 123).Info(0, "hello", "a", 1, "b", 2)
 	}
 }
 
@@ -244,12 +245,12 @@ func BenchmarkLogger_complicated_precalculated(b *testing.B) {
 		foo += e.Level // just to prevent it from being optimized away
 	}
 	log := genericr.New(lf)
-	log2 := log.V(1).WithName("bench").WithValues("x", 123)
+	log2 := log.WithName("bench").WithValues("x", 123)
 
 	b.ReportAllocs()
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		log2.Info("hello", "a", 1, "b", 2)
+		log2.Info(0, "hello", "a", 1, "b", 2)
 	}
 }
 
@@ -263,7 +264,7 @@ func BenchmarkLogger_2vars_tostring(b *testing.B) {
 	b.ReportAllocs()
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		log.Info("hello", "a", 1, "b", 2)
+		log.Info(0, "hello", "a", 1, "b", 2)
 	}
 	_ = foo
 }
