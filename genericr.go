@@ -15,7 +15,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-// Package genericr implements github.com/go-logr/logr.Logger in a generic way
+// Package genericr implements github.com/go-logr/logr.LogSink in a generic way
 // that allows easy implementation of other logging backends.
 package genericr
 
@@ -92,18 +92,18 @@ func (e Entry) CallerShort() string {
 // LogFunc is your custom log backend
 type LogFunc func(e Entry)
 
-// New returns a logr.Logger which is implemented by your custom LogFunc.
-func New(f LogFunc) Logger {
-	log := Logger{
+// New returns a logr.LogSink which is implemented by your custom LogFunc.
+func New(f LogFunc) LogSink {
+	log := LogSink{
 		f:         f,
 		verbosity: 1000,
 	}
 	return log
 }
 
-// Logger is a generic logger that implements the logr.Logger interface and
+// LogSink is a generic logger that implements the logr.LogSink interface and
 // calls a function of type LogFunc for every log message received.
-type Logger struct {
+type LogSink struct {
 	f         LogFunc
 	level     int           // current verbosity level
 	verbosity int           // max verbosity level that we log
@@ -116,7 +116,7 @@ type Logger struct {
 
 // WithVerbosity returns a new instance with given max verbosity level.
 // This is not part of the logr interface, so you can only use this on the root object.
-func (l Logger) WithVerbosity(level int) Logger {
+func (l LogSink) WithVerbosity(level int) LogSink {
 	l.verbosity = level
 	return l
 }
@@ -126,7 +126,7 @@ func (l Logger) WithVerbosity(level int) Logger {
 // Local benchmarks show close to 1µs and 2 allocs extra overhead from enabling this,
 // without actually using this extra information.
 // This is not part of the logr interface, so you can only use this on the root object.
-func (l Logger) WithCaller(enabled bool) Logger {
+func (l LogSink) WithCaller(enabled bool) LogSink {
 	l.caller = enabled
 	return l
 }
@@ -135,29 +135,27 @@ func (l Logger) WithCaller(enabled bool) Logger {
 // a custom wrapper to log messages with extra info.
 // To actually do caller lookups, those have to be enabled with .WithCaller(true).
 // This is not part of the logr interface, so you can only use this on the root object.
-func (l Logger) WithCallerDepth(depth int) Logger {
+func (l LogSink) WithCallerDepth(depth int) LogSink {
 	l.depth += depth
 	return l
 }
 
-func (l Logger) Info(msg string, kvList ...interface{}) {
-	l.logMessage(nil, msg, kvList)
+func (l LogSink) Init(info logr.RuntimeInfo) {
 }
 
-func (l Logger) Enabled() bool {
-	return l.verbosity >= l.level
+func (l LogSink) Info(level int, msg string, kvList ...interface{}) {
+	l.logMessage(level, nil, msg, kvList)
 }
 
-func (l Logger) Error(err error, msg string, kvList ...interface{}) {
-	l.logMessage(err, msg, kvList)
+func (l LogSink) Enabled(level int) bool {
+	return l.verbosity >= level
 }
 
-func (l Logger) V(level int) logr.Logger {
-	l.level += level
-	return l
+func (l LogSink) Error(err error, msg string, kvList ...interface{}) {
+	l.logMessage(0, err, msg, kvList)
 }
 
-func (l Logger) WithName(name string) logr.Logger {
+func (l LogSink) WithName(name string) logr.LogSink {
 	// We keep both a list of parts for full flexibility, and a pre-joined string
 	// for performance. We assume that this method is called far less often
 	// than that actual logging is done.
@@ -172,7 +170,7 @@ func (l Logger) WithName(name string) logr.Logger {
 	return l
 }
 
-func (l Logger) WithValues(kvList ...interface{}) logr.Logger {
+func (l LogSink) WithValues(kvList ...interface{}) logr.LogSink {
 	if len(kvList) == 0 {
 		return l
 	}
@@ -190,10 +188,7 @@ func (l Logger) WithValues(kvList ...interface{}) logr.Logger {
 }
 
 // logMessage implements the actual logging for .Info() and .Error()
-func (l Logger) logMessage(err error, msg string, kvList []interface{}) {
-	if !l.Enabled() {
-		return
-	}
+func (l LogSink) logMessage(level int, err error, msg string, kvList []interface{}) {
 	var out []interface{}
 	if len(l.values) == 0 && len(kvList) > 0 {
 		out = kvList
@@ -205,7 +200,7 @@ func (l Logger) logMessage(err error, msg string, kvList []interface{}) {
 		copy(out[len(l.values):], kvList)
 	}
 
-	calldepth := 2 + l.depth
+	calldepth := 3 + l.depth
 	var caller runtime.Frame
 	if l.caller {
 		pc := make([]uintptr, 1)
@@ -215,7 +210,7 @@ func (l Logger) logMessage(err error, msg string, kvList []interface{}) {
 	}
 
 	l.f(Entry{
-		Level:       l.level,
+		Level:       level,
 		Name:        l.name,
 		NameParts:   l.nameParts,
 		Message:     msg,
@@ -226,8 +221,9 @@ func (l Logger) logMessage(err error, msg string, kvList []interface{}) {
 	})
 }
 
-// Check that we indeed implement the logr.Logger interface
-var _ logr.Logger = Logger{}
+// Check that we indeed implement the logr.LogSink interface
+var _ logr.LogSink = LogSink{}
+var _ logr.LogSink = LogSink{}
 
 // Helper functions below
 
