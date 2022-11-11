@@ -169,6 +169,37 @@ func TestLogger_Caller(t *testing.T) {
 	}
 }
 
+type wrappedLogger struct {
+	log logr.Logger
+}
+
+func (wl wrappedLogger) Info(msg string, keysAndValues ...interface{}) {
+	wl.log.Info(msg, keysAndValues...)
+}
+
+func TestLogger_WithCallDepth(t *testing.T) {
+	var last genericr.Entry
+	var lf genericr.LogFunc = func(e genericr.Entry) {
+		last = e
+		t.Log(e.String())
+		t.Log(runtime.Caller(e.CallerDepth)) // should log caller_test
+	}
+	sink := genericr.New(lf).WithCaller(true).WithCallDepth(1)
+	logger := logr.New(sink)
+	wlogger := wrappedLogger{logger}
+
+	logSomethingFromOtherFile(wlogger)
+
+	_, fname := filepath.Split(last.Caller.File)
+	if fname != "caller_test.go" {
+		t.Errorf("Caller: expected 'caller_test.go', got %q (full: %s:%d)",
+			fname, last.Caller.File, last.Caller.Line)
+	}
+	if last.CallerDepth != 5 {
+		t.Errorf("Caller depth: expected 4, got %d", last.CallerDepth)
+	}
+}
+
 func BenchmarkLogger_basic(b *testing.B) {
 	foo := 0
 	var lf genericr.LogFunc = func(e genericr.Entry) {
