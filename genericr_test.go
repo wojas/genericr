@@ -196,7 +196,7 @@ func TestLogger_WithCallDepth(t *testing.T) {
 			fname, last.Caller.File, last.Caller.Line)
 	}
 	if last.CallerDepth != 5 {
-		t.Errorf("Caller depth: expected 4, got %d", last.CallerDepth)
+		t.Errorf("Caller depth: expected 5, got %d", last.CallerDepth)
 	}
 }
 
