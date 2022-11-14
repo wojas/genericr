@@ -131,11 +131,8 @@ func (l LogSink) WithCaller(enabled bool) LogSink {
 	return l
 }
 
-// WithCallerDepth adjusts the caller depth. This is useful is the caller uses
-// a custom wrapper to log messages with extra info.
-// To actually do caller lookups, those have to be enabled with .WithCaller(true).
-// This is not part of the logr interface, so you can only use this on the root object.
-func (l LogSink) WithCallerDepth(depth int) LogSink {
+// WithCallDepth implements logr.CallDepthLogSink.
+func (l LogSink) WithCallDepth(depth int) logr.LogSink {
 	l.depth += depth
 	return l
 }
@@ -221,9 +218,9 @@ func (l LogSink) logMessage(level int, err error, msg string, kvList []interface
 	})
 }
 
-// Check that we indeed implement the logr.LogSink interface
+// Check that we indeed implement the logr.LogSink and logr.CallDepthLogSink interfaces.
 var _ logr.LogSink = LogSink{}
-var _ logr.LogSink = LogSink{}
+var _ logr.CallDepthLogSink = LogSink{}
 
 // Helper functions below
 

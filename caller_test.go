@@ -1,8 +1,10 @@
 package genericr_test
 
-import "github.com/go-logr/logr"
+type infoLogger interface {
+	Info(msg string, keysAndValues ...interface{})
+}
 
 // This is indirectly tested by calling this function
-func logSomethingFromOtherFile(log logr.Logger) {
+func logSomethingFromOtherFile(log infoLogger) {
 	log.Info("test caller")
 }
